@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Job Application Autofill",
+  "description": "Autopopulate common fields on job application forms.",
+  "version": "1.0",
+  "permissions": ["storage", "scripting", "activeTab"],
+  "action": {
+    "default_title": "Job Autofill",
+    "default_popup": "popup.html"
+  },
+  "icons": {
+    "128": "icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
