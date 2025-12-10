@@ -32,6 +32,7 @@ function isGreenhouseIframe() {
  * Load profile data when the content script runs.
  */
 chrome.storage.sync.get(
+
   [
     "fullName",
     "email",
