@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Job Application Autofill",
   "description": "Autopopulate common fields on job application forms.",
-  "version": "1.0",
+  "version": "2.0",
   "permissions": ["storage", "scripting", "activeTab"],
   "action": {
     "default_title": "Job Autofill",

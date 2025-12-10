@@ -83,6 +83,145 @@
       border-top: 1px solid #eee;
       margin: 8px 0;
     }
+
+    /* Work Experience Styles */
+    #workExperienceList {
+      margin-top: 6px;
+    }
+
+    .work-experience-item {
+      background: #f9f9f9;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 6px;
+      margin-bottom: 6px;
+      font-size: 11px;
+      display: flex;
+      gap: 6px;
+    }
+
+    .work-exp-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .work-exp-checkbox {
+      margin: 0;
+      width: 14px;
+      height: 14px;
+      cursor: pointer;
+    }
+
+    .work-exp-order-btns {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .order-btn {
+      padding: 0;
+      margin: 0;
+      width: 18px;
+      height: 14px;
+      font-size: 8px;
+      line-height: 1;
+      background: #e0e0e0;
+      border: 1px solid #ccc;
+      cursor: pointer;
+    }
+
+    .order-btn:hover:not(:disabled) {
+      background: #d0d0d0;
+    }
+
+    .order-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    .work-exp-content {
+      flex: 1;
+    }
+
+    .work-exp-content.disabled {
+      opacity: 0.4;
+    }
+
+    .work-exp-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+
+    .work-exp-details {
+      font-size: 10px;
+      opacity: 0.7;
+    }
+
+    .delete-exp-btn {
+      padding: 2px 6px;
+      font-size: 10px;
+      margin: 0;
+      width: auto;
+      background: #ff4444;
+      color: white;
+      border: none;
+    }
+
+    .delete-exp-btn:hover {
+      background: #cc0000;
+    }
+
+    /* Modal styles */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+    }
+
+    .modal-content {
+      background: white;
+      margin: 5% auto;
+      padding: 15px;
+      border-radius: 6px;
+      width: 90%;
+      max-width: 400px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+
+    .modal-header {
+      font-size: 14px;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+
+    .modal-buttons {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .modal-buttons button {
+      flex: 1;
+      margin: 0;
+    }
+
+    #cancelWorkExp {
+      background: #ddd;
+    }
+
+    #cancelWorkExp:hover {
+      background: #ccc;
+    }
   </style>
 </head>
 
@@ -161,6 +300,15 @@
     />
   </div>
 
+  <div class="field-group">
+    <label for="website">Website/Portfolio</label>
+    <input
+      id="website"
+      type="url"
+      placeholder="https://yourwebsite.com"
+    />
+  </div>
+
   <hr>
 
 <hr>
@@ -219,19 +367,52 @@
   />
 </div>
 
+<div class="field-group">
+  <label for="country">Country</label>
+  <input
+    id="country"
+    type="text"
+    placeholder="e.g., United States"
+  />
+</div>
+
+<hr>
+
+  <!-- =========================================================================
+       SECTION: WORK EXPERIENCE
+       - Multiple work experiences with add/edit/delete functionality
+     ========================================================================= -->
+  <div class="section-title">Work Experience</div>
+
+  <div id="workExperienceList">
+    <!-- Work experience items will be rendered here by JavaScript -->
+  </div>
+
+  <button id="addWorkExp">Add Work Experience</button>
+
+  <hr>
 
   <!-- =========================================================================
        SECTION: SUMMARY / "WHY YOU"
        - Reused in free-text questions ("Tell us about yourself", etc.)
      ========================================================================= -->
-  <div class="section-title">Summary</div>
+  <div class="section-title">Summary & Skills</div>
 
   <div class="field-group">
-    <label for="summary">Summary / “Why you”</label>
+    <label for="summary">Summary / "Why you"</label>
     <textarea
       id="summary"
       rows="3"
       placeholder="Short blurb you reuse in forms..."
+    ></textarea>
+  </div>
+
+  <div class="field-group">
+    <label for="skills">Skills (comma-separated)</label>
+    <textarea
+      id="skills"
+      rows="3"
+      placeholder="e.g., Python, JavaScript, React, SQL..."
     ></textarea>
   </div>
 
@@ -241,6 +422,89 @@
      ========================================================================= -->
   <button id="save">Save</button>
   <div id="status"></div>
+
+  <!-- =========================================================================
+       WORK EXPERIENCE MODAL
+       - Form for adding/editing work experience entries
+     ========================================================================= -->
+  <div id="workExpModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">Add Work Experience</div>
+
+      <form id="workExpForm">
+        <div class="field-group">
+          <label for="workExpTitle">Job Title *</label>
+          <input
+            id="workExpTitle"
+            type="text"
+            placeholder="e.g., Software Engineer"
+            required
+          />
+        </div>
+
+        <div class="field-group">
+          <label for="workExpCompany">Company *</label>
+          <input
+            id="workExpCompany"
+            type="text"
+            placeholder="e.g., Google"
+            required
+          />
+        </div>
+
+        <div class="field-group">
+          <label for="workExpLocation">Location</label>
+          <input
+            id="workExpLocation"
+            type="text"
+            placeholder="e.g., San Francisco, CA"
+          />
+        </div>
+
+        <div class="field-group">
+          <label for="workExpStartDate">Start Date (MM/YYYY)</label>
+          <input
+            id="workExpStartDate"
+            type="text"
+            placeholder="e.g., 01/2020"
+          />
+        </div>
+
+        <div class="field-group">
+          <label for="workExpEndDate">End Date (MM/YYYY)</label>
+          <input
+            id="workExpEndDate"
+            type="text"
+            placeholder="e.g., 12/2022"
+          />
+        </div>
+
+        <div class="field-group">
+          <label>
+            <input
+              id="workExpCurrent"
+              type="checkbox"
+            />
+            Currently work here
+          </label>
+        </div>
+
+        <div class="field-group">
+          <label for="workExpDescription">Role Description</label>
+          <textarea
+            id="workExpDescription"
+            rows="4"
+            placeholder="Describe your responsibilities and achievements..."
+          ></textarea>
+        </div>
+
+        <div class="modal-buttons">
+          <button type="button" id="cancelWorkExp">Cancel</button>
+          <button type="button" id="saveWorkExp">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- =========================================================================
        SCRIPT

@@ -15,6 +15,20 @@
 let profile = {};
 
 /**
+ * Check if we're inside an iframe
+ */
+function isInIframe() {
+  return window.self !== window.top;
+}
+
+/**
+ * Check if we're on a Greenhouse embedded form (inside iframe)
+ */
+function isGreenhouseIframe() {
+  return isInIframe() && window.location.hostname.includes("greenhouse");
+}
+
+/**
  * Load profile data when the content script runs.
  */
 chrome.storage.sync.get(
@@ -24,18 +38,32 @@ chrome.storage.sync.get(
     "phone",
     "linkedin",
     "github",
+    "website",
     "summary",
+    "skills",
 
     // Address fields
     "address1",
     "address2",
     "city",
     "state",
-    "zip"
+    "zip",
+    "country",
+
+    // Work experience
+    "workExperience"
   ],
   (data) => {
     profile = data || {};
-    injectAutofillButton();
+
+    // If we're in a Greenhouse iframe, inject button inside the iframe
+    if (isGreenhouseIframe()) {
+      injectAutofillButton();
+    } else {
+      // On parent pages, inject button and set up iframe detection
+      injectAutofillButton();
+      setupIframeDetection();
+    }
   }
 );
 
@@ -136,6 +164,26 @@ function setByAutomationId(id, value) {
 // ============================================================================
 
 /**
+ * Set up detection for Greenhouse iframes on the parent page.
+ * When we find a Greenhouse iframe, we'll try to trigger autofill inside it.
+ */
+function setupIframeDetection() {
+  // Look for Greenhouse iframe
+  const checkForGreenhouseIframe = () => {
+    const iframe = document.querySelector('iframe[id*="grnhse"], iframe[src*="greenhouse"]');
+    if (iframe) {
+      console.log("Job Autofill: Found Greenhouse iframe");
+    }
+  };
+
+  // Check immediately
+  checkForGreenhouseIframe();
+
+  // Also check after a delay (in case iframe loads later)
+  setTimeout(checkForGreenhouseIframe, 2000);
+}
+
+/**
  * Injects the floating "Autofill Application" button and wires routing logic:
  *  - Greenhouse
  *  - Workday
@@ -148,7 +196,8 @@ function injectAutofillButton() {
   btn.id = "job-autofill-btn";
   btn.textContent = "Autofill Application";
 
-  Object.assign(btn.style, {
+  // Use different styling if we're inside an iframe
+  const buttonStyle = {
     position: "fixed",
     bottom: "20px",
     right: "20px",
@@ -160,19 +209,55 @@ function injectAutofillButton() {
     background: "#ffffff",
     cursor: "pointer",
     boxShadow: "0 2px 6px rgba(0,0,0,0.18)"
-  });
+  };
+
+  // If inside iframe, make button more prominent
+  if (isInIframe()) {
+    buttonStyle.background = "#4CAF50";
+    buttonStyle.color = "#ffffff";
+    buttonStyle.border = "1px solid #45a049";
+    buttonStyle.fontWeight = "bold";
+  }
+
+  Object.assign(btn.style, buttonStyle);
 
   btn.addEventListener("mouseenter", () => {
-    btn.style.background = "#f5f5f5";
+    if (isInIframe()) {
+      btn.style.background = "#45a049";
+    } else {
+      btn.style.background = "#f5f5f5";
+    }
   });
   btn.addEventListener("mouseleave", () => {
-    btn.style.background = "#ffffff";
+    if (isInIframe()) {
+      btn.style.background = "#4CAF50";
+    } else {
+      btn.style.background = "#ffffff";
+    }
   });
 
   btn.addEventListener("click", () => {
     const host = window.location.hostname.toLowerCase();
 
     try {
+      // Check if we're inside a Greenhouse iframe
+      if (isGreenhouseIframe()) {
+        console.log("Job Autofill: Inside Greenhouse iframe");
+        autofillGreenhouse();
+        return;
+      }
+
+      // Check if there's a Greenhouse iframe on this page
+      const greenhouseIframe = document.querySelector('iframe[id*="grnhse"], iframe[src*="greenhouse"]');
+      if (greenhouseIframe) {
+        console.log("Job Autofill: Found Greenhouse iframe on page, attempting to autofill inside it");
+        // Since we can't directly access cross-origin iframe content,
+        // we need to wait for the iframe's own content script to handle it
+        alert("Please scroll down to the application form in the iframe and click the 'Autofill Application' button inside the form.");
+        return;
+      }
+
+      // Regular detection for non-iframe pages
       if (host.includes("greenhouse")) {
         console.log("Job Autofill: Greenhouse detected");
         autofillGreenhouse();
@@ -287,6 +372,9 @@ function autofillGreenhouse() {
 
   // Run generic as a backup for any other fields (including address)
   autofillGeneric(true);
+
+  // Fill work experience sections
+  autofillWorkExperience();
 }
 
 /**
@@ -338,6 +426,9 @@ function autofillWorkday() {
 
   // Run generic as backup for plain inputs/selects that aren't tagged
   autofillGeneric(true);
+
+  // Fill work experience sections
+  autofillWorkExperience();
 }
 
 // ============================================================================
@@ -357,6 +448,9 @@ function autofillGeneric(skipFilled = false) {
   );
   const nameParts = getNameParts();
 
+  console.log(`Job Autofill: Found ${inputs.length} input/select/textarea elements`);
+  console.log(`Job Autofill: Profile state value: "${profile.state}"`);
+
   inputs.forEach((el) => {
     if (skipFilled && el.value) return;
 
@@ -365,21 +459,29 @@ function autofillGeneric(skipFilled = false) {
     // Apply rule functions in order; stop at the first one that returns true.
     if (applyEmailRule(el, hint)) return;
     if (applyNameRules(el, hint, nameParts)) return;
+    if (applyPhoneDeviceTypeRule(el, hint)) return;
     if (applyPhoneRule(el, hint)) return;
     if (applyAddressLine1Rule(el, hint)) return;
     if (applyAddressLine2Rule(el, hint)) return;
     if (applyCityRule(el, hint)) return;
     if (applyStateRule(el, hint)) return;
     if (applyZipRule(el, hint)) return;
+    if (applyCountryRule(el, hint)) return;
     if (applyLinkedInRule(el, hint)) return;
     if (applyGitHubRule(el, hint)) return;
     if (applyWebsiteRule(el, hint)) return;
+    if (applySkillsRule(el, hint)) return;
     if (applySummaryRule(el, hint)) return;
   });
 
   const firstInput = document.querySelector("input, textarea");
   if (firstInput) {
     firstInput.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  // Fill work experience sections (when called from generic autofill route)
+  if (!skipFilled) {
+    autofillWorkExperience();
   }
 }
 
@@ -444,6 +546,40 @@ function applyPhoneRule(el, hint) {
   return true;
 }
 
+function applyPhoneDeviceTypeRule(el, hint) {
+  // Only apply to select elements that haven't been filled
+  if (el.value) return false;
+
+  const tag = el.tagName.toLowerCase();
+  if (tag !== "select") return false;
+
+  // Match fields that look like phone device type / phone type
+  // Patterns: devicetype, device.type, phone type, nonusdevicetype, etc.
+  if (!/(device.*type|phone.*type|type.*device|type.*phone)/.test(hint)) return false;
+
+  console.log(`Job Autofill: Found phone device type field - hint: "${hint}"`);
+
+  const options = Array.from(el.options || []);
+
+  // Try to find "Mobile" option (case-insensitive)
+  const match = options.find((opt) => {
+    const val = (opt.value || "").trim().toLowerCase();
+    const txt = (opt.textContent || "").trim().toLowerCase();
+
+    return val === "mobile" || txt === "mobile";
+  });
+
+  if (match) {
+    console.log(`Job Autofill: Found "Mobile" option - value: "${match.value}", text: "${match.textContent}"`);
+    setValueWithEvents(el, match.value);
+    return true;
+  }
+
+  console.log(`Job Autofill: Could not find "Mobile" option in device type dropdown`);
+  console.log(`Available options:`, options.map(o => `value="${o.value}" text="${o.textContent}"`));
+  return false;
+}
+
 // ----- ADDRESS LINE 1 -----
 function applyAddressLine1Rule(el, hint) {
   const addr1 = profile.address1;
@@ -506,7 +642,10 @@ function applyStateRule(el, hint) {
   if (!profile.state) return false;
   if (el.value) return false;
 
-  if (!/(state|province|region)/.test(hint)) return false;
+  // Match "state", "province", "region", or fields with "cntryFields.region" pattern
+  if (!/(state|province|region|cntry.*region)/.test(hint)) return false;
+
+  console.log(`Job Autofill: Found state field - hint: "${hint}"`);
 
   const tag = el.tagName.toLowerCase();
   const state = profile.state.trim();
@@ -516,37 +655,86 @@ function applyStateRule(el, hint) {
     const normalized = state.toLowerCase();
     const options = Array.from(el.options || []);
 
+    // State abbreviation to full name mapping
+    const stateMap = {
+      'al': 'alabama', 'ak': 'alaska', 'az': 'arizona', 'ar': 'arkansas',
+      'ca': 'california', 'co': 'colorado', 'ct': 'connecticut', 'de': 'delaware',
+      'fl': 'florida', 'ga': 'georgia', 'hi': 'hawaii', 'id': 'idaho',
+      'il': 'illinois', 'in': 'indiana', 'ia': 'iowa', 'ks': 'kansas',
+      'ky': 'kentucky', 'la': 'louisiana', 'me': 'maine', 'md': 'maryland',
+      'ma': 'massachusetts', 'mi': 'michigan', 'mn': 'minnesota', 'ms': 'mississippi',
+      'mo': 'missouri', 'mt': 'montana', 'ne': 'nebraska', 'nv': 'nevada',
+      'nh': 'new hampshire', 'nj': 'new jersey', 'nm': 'new mexico', 'ny': 'new york',
+      'nc': 'north carolina', 'nd': 'north dakota', 'oh': 'ohio', 'ok': 'oklahoma',
+      'or': 'oregon', 'pa': 'pennsylvania', 'ri': 'rhode island', 'sc': 'south carolina',
+      'sd': 'south dakota', 'tn': 'tennessee', 'tx': 'texas', 'ut': 'utah',
+      'vt': 'vermont', 'va': 'virginia', 'wa': 'washington', 'wv': 'west virginia',
+      'wi': 'wisconsin', 'wy': 'wyoming', 'dc': 'district of columbia'
+    };
+
+    // Get both the abbreviation and full name for matching
+    let abbr = normalized.length === 2 ? normalized : null;
+    let fullName = normalized.length > 2 ? normalized : stateMap[normalized];
+
+    // If user provided abbreviation, also get the full name
+    if (abbr && stateMap[abbr]) {
+      fullName = stateMap[abbr];
+    }
+
+    // Try multiple matching strategies
     let match = options.find((opt) => {
       const val = (opt.value || "").trim().toLowerCase();
       const txt = (opt.textContent || "").trim().toLowerCase();
 
-      if (normalized.length === 2) {
-        // "FL"
-        return (
-          val === normalized ||
-          txt === normalized ||
-          txt.endsWith(`(${normalized})`) // "Florida (fl)"
-        );
-      } else {
-        // "Florida"
-        return val === normalized || txt === normalized;
-      }
+      // Strategy 1: Exact match on value (most common)
+      if (abbr && val === abbr) return true;
+      if (fullName && val === fullName) return true;
+
+      // Strategy 2: Exact match on text
+      if (abbr && txt === abbr) return true;
+      if (fullName && txt === fullName) return true;
+
+      // Strategy 3: Value ends with abbreviation (e.g., "USA-FL", "US-FL")
+      if (abbr && val.endsWith(`-${abbr}`)) return true;
+
+      // Strategy 4: Value contains country code + abbreviation (e.g., "usa-fl")
+      if (abbr && val.includes(abbr) && val.match(/^[a-z]+-[a-z]+$/)) return true;
+
+      // Strategy 5: Text ends with "(XX)" format - e.g., "Florida (FL)"
+      if (abbr && txt.endsWith(`(${abbr})`)) return true;
+
+      // Strategy 6: Text contains the abbreviation in parentheses
+      if (abbr && txt.includes(`(${abbr})`)) return true;
+
+      // Strategy 7: Text starts with full name - e.g., "Florida - FL"
+      if (fullName && txt.startsWith(fullName)) return true;
+
+      return false;
     });
 
-    if (!match && state.length === 2) {
-      // fallback: match any " (FL)" pattern, or exact value
+    // Fallback: Try case-insensitive partial matching
+    if (!match && (abbr || fullName)) {
       match = options.find((opt) => {
-        const txt = (opt.textContent || "").toLowerCase();
-        const val = (opt.value || "").toLowerCase();
-        return txt.includes(`(${normalized})`) || val === normalized;
+        const val = (opt.value || "").trim().toLowerCase();
+        const txt = (opt.textContent || "").trim().toLowerCase();
+
+        // Check if value or text contains our state
+        if (abbr && (val.includes(abbr) || txt.includes(abbr))) return true;
+        if (fullName && (val.includes(fullName) || txt.includes(fullName))) return true;
+
+        return false;
       });
     }
 
     if (match) {
+      console.log(`Job Autofill: Found state match - value: "${match.value}", text: "${match.textContent}"`);
       setValueWithEvents(el, match.value);
       return true;
     }
 
+    // If still no match, log for debugging with available options
+    console.log(`Job Autofill: Could not find state "${state}" in dropdown`);
+    console.log(`Available options (first 5):`, options.slice(0, 5).map(o => `value="${o.value}" text="${o.textContent}"`));
     return false;
   }
 
@@ -568,6 +756,40 @@ function applyZipRule(el, hint) {
 
   setValueWithEvents(el, profile.zip);
   return true;
+}
+
+// ----- COUNTRY -----
+function applyCountryRule(el, hint) {
+  if (!profile.country) return false;
+  if (el.value) return false;
+
+  if (!/(country|nation)/.test(hint)) return false;
+
+  const tag = el.tagName.toLowerCase();
+
+  if (tag === "select") {
+    const country = profile.country.trim().toLowerCase();
+    const options = Array.from(el.options || []);
+
+    // Try to find matching country option
+    const match = options.find((opt) => {
+      const val = (opt.value || "").trim().toLowerCase();
+      const txt = (opt.textContent || "").trim().toLowerCase();
+
+      return val === country || txt === country ||
+             val.includes(country) || txt.includes(country);
+    });
+
+    if (match) {
+      setValueWithEvents(el, match.value);
+      return true;
+    }
+  } else {
+    setValueWithEvents(el, profile.country);
+    return true;
+  }
+
+  return false;
 }
 
 // ----- LINKEDIN -----
@@ -606,6 +828,20 @@ function applyWebsiteRule(el, hint) {
   return false;
 }
 
+// ----- SKILLS -----
+function applySkillsRule(el, hint) {
+  if (!profile.skills) return false;
+  if (el.value) return false;
+  if (el.tagName.toLowerCase() !== "textarea") return false;
+
+  if (/(skill|expertise|proficienc|competenc|capabilit)/.test(hint)) {
+    setValueWithEvents(el, profile.skills);
+    return true;
+  }
+
+  return false;
+}
+
 // ----- SUMMARY / ABOUT YOU -----
 function applySummaryRule(el, hint) {
   if (!profile.summary) return false;
@@ -620,4 +856,219 @@ function applySummaryRule(el, hint) {
   }
 
   return false;
+}
+
+// ============================================================================
+//  SECTION 6: WORK EXPERIENCE AUTOFILL
+// ============================================================================
+
+/**
+ * Detects and fills work experience sections on forms.
+ * Looks for arrays of work experience fields (e.g., experienceData[0].title)
+ * and fills them with stored work experience entries.
+ * Only fills ENABLED work experiences (checked in the popup).
+ */
+function autofillWorkExperience() {
+  if (!profile.workExperience || !Array.isArray(profile.workExperience)) {
+    console.log("Job Autofill: No work experience data found");
+    return;
+  }
+
+  if (profile.workExperience.length === 0) {
+    console.log("Job Autofill: Work experience array is empty");
+    return;
+  }
+
+  // Filter to only enabled work experiences
+  const enabledExperiences = profile.workExperience.filter(exp => exp.enabled !== false);
+
+  if (enabledExperiences.length === 0) {
+    console.log("Job Autofill: No enabled work experiences found (uncheck to enable in popup)");
+    return;
+  }
+
+  console.log(`Job Autofill: Found ${enabledExperiences.length} enabled work experience entries (out of ${profile.workExperience.length} total)`);
+
+  // Strategy 1: Look for fields with array notation (e.g., experienceData[0].title)
+  // Fill them in order with enabled experiences
+  enabledExperiences.forEach((exp, enabledIndex) => {
+    // Job title
+    fillWorkExperienceField(enabledIndex, ["title", "job.?title", "position", "role"], exp.title);
+
+    // Company name
+    fillWorkExperienceField(enabledIndex, ["company", "companyname", "employer", "organization"], exp.company);
+
+    // Location
+    fillWorkExperienceField(enabledIndex, ["location", "city", "place"], exp.location);
+
+    // Start date
+    fillWorkExperienceField(enabledIndex, ["startdate", "from.*date", "start", "begin.*date"], exp.startDate);
+
+    // End date (if not current)
+    if (!exp.current) {
+      fillWorkExperienceField(enabledIndex, ["enddate", "to.*date", "end", "until.*date"], exp.endDate);
+    }
+
+    // Currently work here checkbox
+    if (exp.current) {
+      fillWorkExperienceCheckbox(enabledIndex, ["current", "present", "currentlywork"]);
+    }
+
+    // Role description
+    fillWorkExperienceField(enabledIndex, ["description", "roledescription", "responsibilities", "duties", "achievements"], exp.description);
+  });
+
+  // Strategy 2: Look for generic work experience sections (for forms without array notation)
+  // This handles forms that have "Add work experience" sections but don't use indexed fields
+  const workExpSections = detectWorkExperienceSections();
+  workExpSections.forEach((section, index) => {
+    if (index >= enabledExperiences.length) return;
+
+    const exp = enabledExperiences[index];
+    fillWorkExperienceSectionFields(section, exp);
+  });
+}
+
+/**
+ * Fill a specific work experience field by index
+ */
+function fillWorkExperienceField(index, patterns, value) {
+  if (!value) return;
+
+  // Try multiple name patterns
+  for (const pattern of patterns) {
+    // Try with various array notations
+    const selectors = [
+      `[name*="[${index}].${pattern}"]`,
+      `[name*="[${index}][${pattern}]"]`,
+      `[name*="${index}.${pattern}"]`,
+      `[name*="experience"][name*="${pattern}"][name*="${index}"]`,
+      `[id*="experience-${index}-${pattern}"]`,
+      `[data-index="${index}"][name*="${pattern}"]`
+    ];
+
+    for (const selector of selectors) {
+      const elements = document.querySelectorAll(selector);
+      elements.forEach((el) => {
+        if (!el.value && (el.tagName.toLowerCase() === "input" || el.tagName.toLowerCase() === "textarea")) {
+          console.log(`Job Autofill: Filling work experience [${index}] ${pattern} with "${value}"`);
+          setValueWithEvents(el, value);
+        }
+      });
+    }
+  }
+}
+
+/**
+ * Check/uncheck a work experience checkbox
+ */
+function fillWorkExperienceCheckbox(index, patterns) {
+  for (const pattern of patterns) {
+    const selectors = [
+      `[name*="[${index}].${pattern}"]`,
+      `[name*="[${index}][${pattern}]"]`,
+      `[name*="${index}.${pattern}"]`,
+      `[id*="experience-${index}-${pattern}"]`,
+      `[data-index="${index}"][name*="${pattern}"]`
+    ];
+
+    for (const selector of selectors) {
+      const elements = document.querySelectorAll('input[type="checkbox"]' + selector);
+      elements.forEach((el) => {
+        if (!el.checked) {
+          console.log(`Job Autofill: Checking "currently work here" checkbox for experience [${index}]`);
+          el.checked = true;
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      });
+    }
+  }
+}
+
+/**
+ * Detect work experience sections (for forms without array notation)
+ * Returns an array of DOM elements representing each work experience section
+ */
+function detectWorkExperienceSections() {
+  const sections = [];
+
+  // Look for containers with work experience keywords
+  const containers = document.querySelectorAll(
+    '[class*="experience"], [id*="experience"], [data-section*="experience"]'
+  );
+
+  containers.forEach((container) => {
+    // Check if this container has work experience fields
+    const hasTitle = container.querySelector('[name*="title"], [placeholder*="title" i]');
+    const hasCompany = container.querySelector('[name*="company"], [placeholder*="company" i]');
+
+    if (hasTitle || hasCompany) {
+      sections.push(container);
+    }
+  });
+
+  console.log(`Job Autofill: Found ${sections.length} work experience sections`);
+  return sections;
+}
+
+/**
+ * Fill work experience fields within a specific section
+ */
+function fillWorkExperienceSectionFields(section, exp) {
+  if (!section || !exp) return;
+
+  // Find and fill fields within this section
+  const inputs = section.querySelectorAll("input, textarea");
+
+  inputs.forEach((el) => {
+    if (el.value) return; // Skip already filled fields
+
+    const hint = getHint(el);
+
+    // Job title
+    if (!el.value && exp.title && /(title|position|role|job)/.test(hint) && !/(company)/.test(hint)) {
+      setValueWithEvents(el, exp.title);
+      return;
+    }
+
+    // Company
+    if (!el.value && exp.company && /(company|employer|organization)/.test(hint)) {
+      setValueWithEvents(el, exp.company);
+      return;
+    }
+
+    // Location
+    if (!el.value && exp.location && /(location|city|place)/.test(hint)) {
+      setValueWithEvents(el, exp.location);
+      return;
+    }
+
+    // Start date
+    if (!el.value && exp.startDate && /(start.*date|from.*date|begin.*date)/.test(hint)) {
+      setValueWithEvents(el, exp.startDate);
+      return;
+    }
+
+    // End date
+    if (!el.value && !exp.current && exp.endDate && /(end.*date|to.*date|until.*date)/.test(hint)) {
+      setValueWithEvents(el, exp.endDate);
+      return;
+    }
+
+    // Description
+    if (!el.value && exp.description && el.tagName.toLowerCase() === "textarea" &&
+        /(description|responsibilities|duties|role|achievement)/.test(hint)) {
+      setValueWithEvents(el, exp.description);
+      return;
+    }
+  });
+
+  // Handle "currently work here" checkbox
+  if (exp.current) {
+    const checkbox = section.querySelector('input[type="checkbox"][name*="current"], input[type="checkbox"][name*="present"]');
+    if (checkbox && !checkbox.checked) {
+      checkbox.checked = true;
+      checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
 }
