@@ -404,6 +404,12 @@ function autofillWorkday() {
   if (profile.phone) {
     setByAutomationId("phone-number", profile.phone);
     setByAutomationId("phoneNumber", profile.phone);
+    // Also try direct selector for phoneNumber--phoneNumber pattern
+    const phoneInput = document.querySelector('[id*="phoneNumber"][name="phoneNumber"]');
+    if (phoneInput && !phoneInput.value) {
+      console.log("Job Autofill: Filling Workday phone field directly");
+      setValueWithEvents(phoneInput, profile.phone);
+    }
   }
 
   // ---- ADDRESS (if Workday uses these automation IDs) ----
@@ -418,6 +424,46 @@ function autofillWorkday() {
   }
   if (profile.state) {
     setByAutomationId("state", profile.state);
+    // Workday sometimes uses countryRegion for state field
+    const stateButton = document.querySelector('[name="countryRegion"]');
+    if (stateButton) {
+      console.log("Job Autofill: Found Workday state dropdown (countryRegion)");
+      // Find the hidden input - it's a sibling in the same container
+      const container = stateButton.parentElement;
+      console.log("Job Autofill: State button parent:", container);
+      if (container) {
+        const hiddenInput = container.querySelector('input[type="text"]');
+        console.log("Job Autofill: Found hidden input:", hiddenInput, "Value:", hiddenInput?.value);
+        if (hiddenInput && !hiddenInput.value) {
+          // Workday uses state codes - convert if needed
+          const stateMap = {
+            'alabama': 'AL', 'alaska': 'AK', 'arizona': 'AZ', 'arkansas': 'AR',
+            'california': 'CA', 'colorado': 'CO', 'connecticut': 'CT', 'delaware': 'DE',
+            'florida': 'FL', 'georgia': 'GA', 'hawaii': 'HI', 'idaho': 'ID',
+            'illinois': 'IL', 'indiana': 'IN', 'iowa': 'IA', 'kansas': 'KS',
+            'kentucky': 'KY', 'louisiana': 'LA', 'maine': 'ME', 'maryland': 'MD',
+            'massachusetts': 'MA', 'michigan': 'MI', 'minnesota': 'MN', 'mississippi': 'MS',
+            'missouri': 'MO', 'montana': 'MT', 'nebraska': 'NE', 'nevada': 'NV',
+            'new hampshire': 'NH', 'new jersey': 'NJ', 'new mexico': 'NM', 'new york': 'NY',
+            'north carolina': 'NC', 'north dakota': 'ND', 'ohio': 'OH', 'oklahoma': 'OK',
+            'oregon': 'OR', 'pennsylvania': 'PA', 'rhode island': 'RI', 'south carolina': 'SC',
+            'south dakota': 'SD', 'tennessee': 'TN', 'texas': 'TX', 'utah': 'UT',
+            'vermont': 'VT', 'virginia': 'VA', 'washington': 'WA', 'west virginia': 'WV',
+            'wisconsin': 'WI', 'wyoming': 'WY', 'district of columbia': 'DC'
+          };
+
+          const normalized = profile.state.trim().toLowerCase();
+          const stateCode = normalized.length === 2 ? normalized.toUpperCase() : stateMap[normalized];
+
+          if (stateCode) {
+            console.log(`Job Autofill: Setting Workday state hidden input to: ${stateCode}`);
+            setValueWithEvents(hiddenInput, stateCode);
+            // Update button text
+            stateButton.textContent = stateCode;
+          }
+        }
+      }
+    }
   }
   if (profile.zip) {
     setByAutomationId("postalCode", profile.zip);
@@ -540,8 +586,12 @@ function applyNameRules(el, hint, { firstName, lastName }) {
 function applyPhoneRule(el, hint) {
   if (!profile.phone) return false;
   if (el.value) return false;
-  if (!/(phone|mobile|cell)/.test(hint)) return false;
 
+  // Match phone/mobile/cell but exclude extension fields
+  if (!/(phone|mobile|cell)/.test(hint)) return false;
+  if (/(extension|ext\b)/.test(hint)) return false;
+
+  console.log(`Job Autofill: Filling phone number - hint: "${hint}"`);
   setValueWithEvents(el, profile.phone);
   return true;
 }
@@ -587,18 +637,15 @@ function applyAddressLine1Rule(el, hint) {
   if (el.value) return false;
   if (el.tagName.toLowerCase() !== "input") return false;
 
-  // Do NOT match line 2 / apt / suite / unit
+  // Do NOT match line 2 / apt / suite / unit / city / postal / zip
   if (
-    /(address line 2|address2|apt|apartment|suite|unit|floor)/.test(hint)
+    /(address line 2|address2|apt|apartment|suite|unit|floor|city|postal|zip|postcode)/.test(hint)
   ) {
     return false;
   }
 
   const isAddress1 =
-    /\baddress\b/.test(hint) || // "Address"
-    /(address line 1|address1|street address|home address|mailing address)/.test(
-      hint
-    );
+    /(address line 1|address1|addressline1|street address|home address|mailing address)/.test(hint);
 
   if (isAddress1) {
     setValueWithEvents(el, addr1);
@@ -642,13 +689,50 @@ function applyStateRule(el, hint) {
   if (!profile.state) return false;
   if (el.value) return false;
 
-  // Match "state", "province", "region", or fields with "cntryFields.region" pattern
-  if (!/(state|province|region|cntry.*region)/.test(hint)) return false;
+  // Match "state", "province", "region", or fields with "cntryFields.region" / "countryregion" pattern
+  if (!/(state|province|region|cntry.*region|country.*region)/.test(hint)) return false;
 
   console.log(`Job Autofill: Found state field - hint: "${hint}"`);
 
   const tag = el.tagName.toLowerCase();
   const state = profile.state.trim();
+
+  // Handle Workday-style button dropdowns
+  if (tag === "button" && el.getAttribute("aria-haspopup") === "listbox") {
+    console.log(`Job Autofill: Found Workday button dropdown for state`);
+    // For Workday button dropdowns, try to set the hidden input value
+    const hiddenInput = el.parentElement?.querySelector('input[type="text"]');
+    if (hiddenInput) {
+      // Workday uses state codes in the hidden input
+      const stateMap = {
+        'alabama': 'AL', 'alaska': 'AK', 'arizona': 'AZ', 'arkansas': 'AR',
+        'california': 'CA', 'colorado': 'CO', 'connecticut': 'CT', 'delaware': 'DE',
+        'florida': 'FL', 'georgia': 'GA', 'hawaii': 'HI', 'idaho': 'ID',
+        'illinois': 'IL', 'indiana': 'IN', 'iowa': 'IA', 'kansas': 'KS',
+        'kentucky': 'KY', 'louisiana': 'LA', 'maine': 'ME', 'maryland': 'MD',
+        'massachusetts': 'MA', 'michigan': 'MI', 'minnesota': 'MN', 'mississippi': 'MS',
+        'missouri': 'MO', 'montana': 'MT', 'nebraska': 'NE', 'nevada': 'NV',
+        'new hampshire': 'NH', 'new jersey': 'NJ', 'new mexico': 'NM', 'new york': 'NY',
+        'north carolina': 'NC', 'north dakota': 'ND', 'ohio': 'OH', 'oklahoma': 'OK',
+        'oregon': 'OR', 'pennsylvania': 'PA', 'rhode island': 'RI', 'south carolina': 'SC',
+        'south dakota': 'SD', 'tennessee': 'TN', 'texas': 'TX', 'utah': 'UT',
+        'vermont': 'VT', 'virginia': 'VA', 'washington': 'WA', 'west virginia': 'WV',
+        'wisconsin': 'WI', 'wyoming': 'WY', 'district of columbia': 'DC'
+      };
+
+      const normalized = state.toLowerCase();
+      const stateCode = normalized.length === 2 ? normalized.toUpperCase() : stateMap[normalized];
+
+      if (stateCode) {
+        console.log(`Job Autofill: Setting Workday state to: ${stateCode}`);
+        setValueWithEvents(hiddenInput, stateCode);
+        // Also update button text
+        el.textContent = stateCode;
+        return true;
+      }
+    }
+    return false;
+  }
 
   // If it's a select, try to pick the correct option
   if (tag === "select") {
